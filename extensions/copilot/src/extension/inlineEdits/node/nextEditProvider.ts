@@ -1103,8 +1103,11 @@ export class NextEditProvider extends Disposable implements INextEditProvider<Ne
 			return;
 		}
 
-		// Cancel any previous speculative request — we are about to install a new one.
-		this._specManager.cancelAll(SpeculativeCancelReason.Replaced);
+		// Note: any previous speculative request will be cancelled (as `Replaced`)
+		// by `_specManager.setPending` once the new request is actually installed —
+		// see the `setPending` call at the end of this method. We deliberately do
+		// not cancel earlier so the prior speculative stays available for reuse
+		// while the new one is being constructed.
 
 		const historyContext = this._historyContextProvider.getHistoryContext(docId);
 		if (!historyContext) {
