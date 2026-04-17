@@ -830,7 +830,6 @@ export class AgentIntentInvocation extends EditCodeIntentInvocation implements I
 						conversationId,
 						requestOptions: {
 							temperature: 0,
-							stream: false,
 							...toolOpts,
 						},
 						modelCapabilities,
