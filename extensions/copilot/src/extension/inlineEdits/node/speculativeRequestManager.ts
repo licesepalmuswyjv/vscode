@@ -53,6 +53,13 @@ export interface SpeculativePendingRequest {
 	readonly trajectorySuffix: string;
 	/** The replacement text the user would type to reach `postEditContent`. */
 	readonly trajectoryNewText: string;
+	/**
+	 * Length of the text replaced by the suggestion (preEdit[editStart..editEnd]).
+	 * The type-through trajectory check only models pure insertions; for
+	 * substitutions/removals (`trajectoryOldTextLen > 0`) the check is skipped
+	 * and the speculative is kept alive until another lifecycle trigger fires.
+	 */
+	readonly trajectoryOldTextLen: number;
 }
 
 export interface ScheduledSpeculativeRequest {
@@ -114,6 +121,8 @@ export class SpeculativeRequestManager extends Disposable {
 			trajectorySuffixTail: truncate(req.trajectorySuffix.slice(Math.max(0, req.trajectorySuffix.length - 80)), 80),
 			trajectoryNewText: truncate(req.trajectoryNewText, 200),
 			trajectoryNewTextLen: req.trajectoryNewText.length,
+			trajectoryOldTextLen: req.trajectoryOldTextLen,
+			trajectoryTracked: req.trajectoryOldTextLen === 0,
 		}, null, 2), 'json');
 	}
 
@@ -244,6 +253,15 @@ type TrajectoryCheckResult =
  * can record exactly what mismatched.
  */
 function checkTrajectory(p: SpeculativePendingRequest, currentDocValue: string): TrajectoryCheckResult {
+	// The type-through trajectory model only fits pure insertions: starting from
+	// preEdit (`prefix + "" + suffix`), the user types characters of `newText`
+	// into the gap. For substitutions/removals (oldText non-empty), the initial
+	// state already has `oldText` in the gap, which is generally not a prefix of
+	// `newText`, so the check would over-cancel on the first keystroke. Skip it.
+	if (p.trajectoryOldTextLen > 0) {
+		return { ok: true };
+	}
+
 	const minLen = p.trajectoryPrefix.length + p.trajectorySuffix.length;
 
 	// Cheap structural failure: doc shorter than the unedited frame.

@@ -461,13 +461,16 @@ describe('NextEditProvider speculative requests', () => {
 		await configService.setConfig(ConfigKey.TeamInternal.InlineEditsSpeculativeRequests, SpeculativeRequestsEnablement.On);
 
 		const statelessProvider = new TestStatelessNextEditProvider();
-		statelessProvider.enqueueBehavior({ kind: 'yieldEditThenNoSuggestions', edit: lineReplacement(1, 'const value = 2;') });
+		// Pure-insertion suggestion (replace `'foo();'` with `'foobar();'` is
+		// minimised to inserting `'bar'` at offset 3) — the trajectory check
+		// only applies to insertions.
+		statelessProvider.enqueueBehavior({ kind: 'yieldEditThenNoSuggestions', edit: lineReplacement(1, 'foobar();') });
 		statelessProvider.enqueueBehavior({ kind: 'waitForCancellation' });
 		const { nextEditProvider, workspace } = createProviderAndWorkspace(statelessProvider);
 
 		const doc = workspace.addDocument({
 			id: DocumentId.create(URI.file('/test/spec-diverge.ts').toString()),
-			initialValue: 'const value = 1;\nconsole.log(value);',
+			initialValue: 'foo();\nconsole.log();',
 		});
 		doc.setSelection([new OffsetRange(0, 0)], undefined);
 
@@ -528,6 +531,43 @@ describe('NextEditProvider speculative requests', () => {
 		await statelessProvider.calls[1].cancellationRequested.p;
 
 		expect(statelessProvider.calls[1].wasCancelled).toBe(true);
+	});
+
+	it('does not cancel speculative for substitution suggestions on user edits (trajectory check skipped)', async () => {
+		// The type-through trajectory check only models pure insertions. For
+		// substitutions the live document still contains the to-be-replaced
+		// `oldText` in the gap, which is generally not a prefix of `newText`
+		// so a naive check would over-cancel on the first keystroke. Verify
+		// substitution speculatives stay alive across user edits.
+		await configService.setConfig(ConfigKey.TeamInternal.InlineEditsSpeculativeRequests, SpeculativeRequestsEnablement.On);
+
+		const statelessProvider = new TestStatelessNextEditProvider();
+		// Suggestion: replace `'const value = 1;'` with `'const value = 2;'` (substitution).
+		statelessProvider.enqueueBehavior({ kind: 'yieldEditThenNoSuggestions', edit: lineReplacement(1, 'const value = 2;') });
+		statelessProvider.enqueueBehavior({ kind: 'waitForCancellation' });
+		const { nextEditProvider, workspace } = createProviderAndWorkspace(statelessProvider);
+
+		const doc = workspace.addDocument({
+			id: DocumentId.create(URI.file('/test/spec-substitution.ts').toString()),
+			initialValue: 'const value = 1;\nconsole.log(value);',
+		});
+		doc.setSelection([new OffsetRange(0, 0)], undefined);
+
+		const suggestion = await getNextEdit(nextEditProvider, doc.id);
+		assert(suggestion.result?.edit);
+		nextEditProvider.handleShown(suggestion);
+		await statelessProvider.waitForCall(2);
+
+		// Make a small unrelated edit further down — for a pure-insertion
+		// trajectory this would diverge, but for a substitution the
+		// trajectory check is skipped and the speculative must stay alive.
+		doc.applyEdit(StringEdit.insert(doc.value.get().value.length, '\n// extra'));
+		await flushMicrotasks();
+
+		expect(statelessProvider.calls[1].wasCancelled).toBe(false);
+
+		nextEditProvider.handleRejection(doc.id, suggestion);
+		await statelessProvider.calls[1].completed.p;
 	});
 
 	it('cancels mismatched speculative request when starting a request for another document', async () => {

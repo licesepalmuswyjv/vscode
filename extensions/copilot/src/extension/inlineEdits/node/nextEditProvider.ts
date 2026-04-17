@@ -1162,6 +1162,7 @@ export class NextEditProvider extends Disposable implements INextEditProvider<Ne
 				const trajectoryPrefix = preEditValue.slice(0, preciseEdit.replaceRange.start);
 				const trajectorySuffix = preEditValue.slice(preciseEdit.replaceRange.endExclusive);
 				const trajectoryNewText = preciseEdit.newText;
+				const trajectoryOldTextLen = preciseEdit.replaceRange.length;
 				this._specManager.setPending({
 					request: speculativeRequest,
 					docId,
@@ -1169,6 +1170,7 @@ export class NextEditProvider extends Disposable implements INextEditProvider<Ne
 					trajectoryPrefix,
 					trajectorySuffix,
 					trajectoryNewText,
+					trajectoryOldTextLen,
 				});
 			}
 		} catch (e) {
