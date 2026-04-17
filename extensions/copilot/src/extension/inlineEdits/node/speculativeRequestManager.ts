@@ -83,17 +83,22 @@ export class SpeculativeRequestManager extends Disposable {
 		return this._pending;
 	}
 
-	/** Replaces the current pending speculative; cancels the prior one as `Replaced`. */
+	/**
+	 * Replaces the current pending speculative; cancels the prior one as `Replaced`.
+	 *
+	 * The slot stays populated until the request is explicitly cancelled or
+	 * superseded — multiple `provideNextEdit` invocations targeting the same
+	 * `(docId, postEditContent)` can all join the same in-flight stream,
+	 * mirroring `_pendingStatelessNextEditRequest`'s dedupe behavior.
+	 * Once the speculative settles, `_nextEditCache` covers further reuse;
+	 * the now-stale slot is cleared by the next `setPending` / `cancelAll`
+	 * / `cancelIfMismatch` / trajectory-divergence trigger.
+	 */
 	setPending(req: SpeculativePendingRequest): void {
 		if (this._pending && this._pending.request !== req.request) {
 			this._cancelPending(SpeculativeCancelReason.Replaced);
 		}
 		this._pending = req;
-	}
-
-	/** Detaches the pending speculative without cancelling — caller is consuming it. */
-	consumePending(): void {
-		this._pending = null;
 	}
 
 	schedule(s: ScheduledSpeculativeRequest): void {

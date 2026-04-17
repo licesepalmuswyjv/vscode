@@ -333,6 +333,46 @@ describe('NextEditProvider speculative requests', () => {
 		expect(secondSuggestion.result.edit.newText).toBe('console.log(value + 1);');
 	});
 
+	it('lets multiple parallel provideNextEdit calls reuse the same speculative request', async () => {
+		// Mirrors the dedupe behavior of `_pendingStatelessNextEditRequest`: once a
+		// speculative request is in-flight for `(docId, postEditContent)`, multiple
+		// `provideNextEdit` invocations targeting that same state should join it
+		// rather than triggering additional stateless calls.
+		await configService.setConfig(ConfigKey.TeamInternal.InlineEditsSpeculativeRequests, SpeculativeRequestsEnablement.On);
+
+		const statelessProvider = new TestStatelessNextEditProvider();
+		statelessProvider.enqueueBehavior({ kind: 'yieldEditThenNoSuggestions', edit: lineReplacement(1, 'const value = 2;') });
+		statelessProvider.enqueueBehavior({ kind: 'yieldEditThenNoSuggestions', edit: lineReplacement(2, 'console.log(value + 1);') });
+		const { nextEditProvider, workspace } = createProviderAndWorkspace(statelessProvider);
+
+		const doc = workspace.addDocument({
+			id: DocumentId.create(URI.file('/test/spec-multi.ts').toString()),
+			initialValue: 'const value = 1;\nconsole.log(value);',
+		});
+		doc.setSelection([new OffsetRange(0, 0)], undefined);
+
+		const firstSuggestion = await getNextEdit(nextEditProvider, doc.id);
+		assert(firstSuggestion.result?.edit);
+		nextEditProvider.handleShown(firstSuggestion);
+		await statelessProvider.waitForCall(2);
+		await statelessProvider.calls[1].completed.p;
+
+		nextEditProvider.handleAcceptance(doc.id, firstSuggestion);
+		doc.applyEdit(firstSuggestion.result.edit.toEdit());
+
+		// Two parallel reuses of the same speculative — neither should trigger a new stateless call.
+		const [a, b] = await Promise.all([
+			getNextEdit(nextEditProvider, doc.id),
+			getNextEdit(nextEditProvider, doc.id),
+		]);
+
+		expect(statelessProvider.calls.length).toBe(2);
+		assert(a.result?.edit);
+		assert(b.result?.edit);
+		expect(a.result.edit.newText).toBe('console.log(value + 1);');
+		expect(b.result.edit.newText).toBe('console.log(value + 1);');
+	});
+
 	it('cancels speculative request on rejection', async () => {
 		await configService.setConfig(ConfigKey.TeamInternal.InlineEditsSpeculativeRequests, SpeculativeRequestsEnablement.On);
 

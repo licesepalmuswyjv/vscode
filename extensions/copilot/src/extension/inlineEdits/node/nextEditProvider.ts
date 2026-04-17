@@ -553,8 +553,11 @@ export class NextEditProvider extends Disposable implements INextEditProvider<Ne
 			// Nice! No need to make another request, we can reuse the result from a pending request.
 			if (speculativeRequest) {
 				logger.trace(`reusing speculative pending request (opportunityId=${speculativeRequest.opportunityId}, headerRequestId=${speculativeRequest.headerRequestId})`);
-				// Detach the speculative — caller is consuming it now.
-				this._specManager.consumePending();
+				// Note: the speculative slot stays populated. Multiple in-flight
+				// `provideNextEdit` invocations targeting the same `(docId, postEditContent)`
+				// can all join this stream (mirroring `_pendingStatelessNextEditRequest`).
+				// The slot is cleared automatically when the underlying request settles —
+				// see `SpeculativeRequestManager.setPending`.
 			} else {
 				logger.trace(`reusing in-flight pending request (opportunityId=${requestToReuse.opportunityId}, headerRequestId=${requestToReuse.headerRequestId})`);
 			}
